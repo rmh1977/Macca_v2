@@ -78,14 +78,14 @@ for(a in 2:(nages-1))
 
 # solve simulatenous eqns for N in the plus group
 
-a <- rep(NA,R)
+av <- rep(NA,R)
 B <- matrix(nrow=R,ncol=R)
 for(s in 1:ns) {
 
-  for(r in 1:R) a[r] <- sum(pim[,r,nages-1]*Neqm[nages-1,s,]*exp(-M[nages-1]))
+  for(r in 1:R) av[r] <- sum(pim[,r,nages-1]*Neqm[nages-1,s,]*exp(-M[nages-1]))
   for(r in 1:R)
     for(ss in 1:R) B[ss,r] <- pim[ss,r,nages]*exp(-M[nages])
-  npg <- t(a) %*% solve(diag(1,nrow=R)-B)
+  npg <- t(av) %*% solve(diag(1,nrow=R)-B)
   Neqm[nages,s,] <- npg
 
 }
@@ -461,7 +461,7 @@ ggplot(subset(zdf,sex=='male' & y >= ny-10),aes(x=l,y=mua))+geom_point(colour='b
 
 lvbinc <- function(lrel,tau,k,Linf) {
 
-  return(max((Linf-lrel)*(1-exp(-k*tau)),0))
+  return(max((Linf-lrel)*(1-exp(-k*tau)),1e-9*lrel))
 }
 
 T <- array(dim=c(ns,nbins,nbins)) 
@@ -498,6 +498,72 @@ for(s in 1:ns) {
   }
 }
 
+# version with stochasticity in growth increment
+
+sdl <- 0.15
+Teps <- T
+epsl <- seq(-1.96*sdl,1.96*sdl,length=25)
+dl <- dnorm(epsl,0,sdl,FALSE)
+dl <- dl/sum(dl)
+pl <- rep(NA,length(dl))
+
+for(s in 1:ns) {
+  for(i in 1:nbins) {
+
+    lx <- lbins[i]
+    ly <- lbins[i+1]
+
+    for(j in 1:nbins) {
+
+      llj <- lbins[j]
+      luj <- lbins[j+1]
+          
+      for(n in 1:25) {
+      
+        lli <- lx + lvbinc(lx,tau,k[s],Linf[s])*exp(epsl[n]) 
+        lui <- ly + lvbinc(ly,tau,k[s],Linf[s])*exp(epsl[n]) 
+      
+        # need to work out Lebesgue measure of intersection 
+        # of image and actual length bin / length bin
+
+        if(lli > llj & lui < luj) {
+          ptmp <- 1
+        } else {
+          tmp <- c(max(llj,lli),min(luj,lui))
+          mu <- ifelse(tmp[1] < tmp[2],tmp[2]-tmp[1],0)
+          nu <- lui-lli
+          ptmp <- mu/nu 
+         }
+
+        pl[n] <- ptmp
+      }
+
+      Teps[s,i,j] <- sum(pl*dl)
+    }
+  }
+}
+
+# old-school version
+
+Told <- T
+Told[] <- NA
+for(s in 1:ns) {
+  for(i in 1:nbins) {
+
+    lref <- 0.5*(lbins[i]+lbins[i+1])
+
+    for(j in 1:nbins) {
+
+      mug <- lvbinc(lref,tau,k[s],Linf[s]) 
+      sdg <- sqrt(max(1e-9,(exp(sdl^2)-1)*exp(2*log(lvbinc(lref,tau,k[s],Linf[s]))+sdl^2)))
+      llj <- lbins[j]
+      luj <- lbins[j+1]
+      ptmp <- pnorm(luj-lref,mug,sdg)-pnorm(llj-lref,mug,sdg)
+      Told[s,i,j] <- ptmp
+
+    }
+  }
+}
 # size-based harvest & movement rates
 
 hyfl <- array(dim=c(ny,nbins,ns,f))
@@ -523,7 +589,7 @@ pil <- array(dim=c(R,R,nbins))
 for(l in 1:nbins) pil[,,l] <- pim[,,1]
 
 
-# number of release events (per year and per area
+# number of release events (per year and per area)
 
 nrr <- 1 # per area
 nry <- 1 # per year
